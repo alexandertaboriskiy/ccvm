@@ -1,0 +1,146 @@
+#!/bin/bash
+# ccvm - Cloud Code VM
+# Resumes suspended GCE VM, SSHs in, manages tmux sessions per project,
+# and starts your preferred AI coding agent (Claude Code or Gemini CLI).
+#
+# Usage:
+#   ccvm                              # connect to VM, land in ~/cloud-projects/
+#   ccvm --my-project                 # open default agent in ~/cloud-projects/my-project/
+#   ccvm --my-project --env=gemini    # open Gemini CLI
+#   ccvm --my-project --env=claude    # open Claude Code
+#   ccvm --delete=my-project          # kill tmux session and remove project folder
+#   ccvm ls                           # list projects and active tmux sessions
+
+# --- Configuration (edit these) ---
+PROJECT="my-project"
+ZONE="europe-west6-a"
+INSTANCE="ccvm"
+PROJECTS_DIR="cloud-projects"
+
+DEFAULT_ENV="claude"
+CLAUDE_CMD="claude --dangerously-skip-permissions --model opus"
+GEMINI_CMD="gemini --yolo --model gemini-2.5-pro"
+# ---
+
+# Subcommands
+COMMAND="$1"
+
+# Parse arguments
+SESSION=""
+DELETE=""
+ENV="$DEFAULT_ENV"
+for arg in "$@"; do
+  if [[ "$arg" == --env=* ]]; then
+    ENV="${arg#--env=}"
+  elif [[ "$arg" == --delete=* ]]; then
+    DELETE="${arg#--delete=}"
+  elif [[ "$arg" == --* ]]; then
+    SESSION="${arg#--}"
+  fi
+done
+
+# Select command based on env
+case "$ENV" in
+  claude)  AGENT_CMD="$CLAUDE_CMD" ;;
+  gemini)  AGENT_CMD="$GEMINI_CMD" ;;
+  *)
+    echo "Unknown env: $ENV. Supported: claude, gemini"
+    exit 1
+    ;;
+esac
+
+# Resume/start VM if needed
+STATUS=$(gcloud compute instances describe "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --format="value(status)" 2>/dev/null)
+
+case "$STATUS" in
+  RUNNING)
+    echo "VM is running. Connecting..."
+    ;;
+  SUSPENDED)
+    echo "VM is suspended. Resuming..."
+    gcloud compute instances resume "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --quiet
+    echo "Waiting for VM to be ready..."
+    while true; do
+      S=$(gcloud compute instances describe "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --format="value(status)" 2>/dev/null)
+      [ "$S" = "RUNNING" ] && break
+      sleep 2
+    done
+    sleep 5
+    echo "VM is ready. Connecting..."
+    ;;
+  TERMINATED|STOPPED)
+    echo "VM is stopped. Starting..."
+    gcloud compute instances start "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --quiet
+    echo "Waiting for VM to be ready..."
+    while true; do
+      S=$(gcloud compute instances describe "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --format="value(status)" 2>/dev/null)
+      [ "$S" = "RUNNING" ] && break
+      sleep 2
+    done
+    sleep 10
+    echo "VM is ready. Connecting..."
+    ;;
+  *)
+    echo "VM status: $STATUS. Cannot connect."
+    exit 1
+    ;;
+esac
+
+# Handle subcommands
+if [ "$COMMAND" = "ls" ]; then
+  gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --command="
+    echo 'Projects:'
+    ls -1 ~/$PROJECTS_DIR 2>/dev/null || echo '  (none)'
+    echo ''
+    echo 'Active tmux sessions:'
+    tmux list-sessions 2>/dev/null || echo '  (none)'
+  "
+  exit 0
+fi
+
+# Handle --delete (comma-separated list)
+if [ -n "$DELETE" ]; then
+  gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --command="
+    IFS=',' read -ra PROJECTS <<< '$DELETE'
+    for P in \"\${PROJECTS[@]}\"; do
+      echo \"Deleting project '\$P'...\"
+      tmux kill-session -t =\$P 2>/dev/null && echo \"  Killed tmux session: \$P\" || echo \"  No tmux session: \$P\"
+      if [ -d ~/$PROJECTS_DIR/\$P ]; then
+        rm -rf ~/$PROJECTS_DIR/\$P
+        echo \"  Removed folder: ~/$PROJECTS_DIR/\$P\"
+      else
+        echo \"  No folder: ~/$PROJECTS_DIR/\$P\"
+      fi
+    done
+  "
+  exit 0
+fi
+
+# SSH in
+if [ -z "$SESSION" ]; then
+  # No project — run first-time setup if needed, list projects, land in projects dir
+  gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" -- -t "
+if [ ! -f ~/.ccvm-setup-done ]; then
+  bash ~/first-run-setup.sh
+fi
+mkdir -p ~/$PROJECTS_DIR
+echo 'Projects:'
+ls -1 ~/$PROJECTS_DIR 2>/dev/null || echo '  (none)'
+echo ''
+cd ~/$PROJECTS_DIR && exec bash
+"
+else
+  REMOTE_SCRIPT="
+if [ ! -f ~/.ccvm-setup-done ]; then
+  bash ~/first-run-setup.sh
+fi
+mkdir -p ~/$PROJECTS_DIR/$SESSION
+if tmux has-session -t =$SESSION 2>/dev/null; then
+  tmux attach-session -t =$SESSION
+else
+  tmux new-session -d -s $SESSION -c \"\$HOME/$PROJECTS_DIR/$SESSION\"
+  tmux attach-session -t =$SESSION \\; send-keys '$AGENT_CMD' Enter
+fi
+"
+  gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" -- -t "$REMOTE_SCRIPT"
+fi
