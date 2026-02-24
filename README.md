@@ -7,6 +7,7 @@ Run AI coding agents (Claude Code, Gemini CLI) on a GCE VM that auto-suspends wh
 - **Persistent sessions** — your agent keeps running in tmux even when you disconnect
 - **Suspend/resume** — VM saves full memory state to disk when idle, resumes in seconds. You only pay for compute when connected.
 - **One command** — `ccvm --my-project` handles everything: resume VM, SSH, tmux, start agent
+- **Secure by default** — connects through IAP tunnel, no public SSH port needed
 - **Multi-agent** — switch between Claude Code and Gemini CLI with `--env=claude` or `--env=gemini`
 - **Cost control** — budget alerts notify you before spending gets out of hand
 
@@ -50,6 +51,10 @@ ccvm --my-project --env=gemini
 # List projects and active sessions
 ccvm ls
 
+# Upload/download files
+ccvm upload --my-project file1.txt file2.txt
+ccvm download --my-project results.json
+
 # Delete projects
 ccvm --delete=old-project
 ccvm --delete=proj1,proj2,proj3
@@ -64,11 +69,14 @@ ccvm                              ccvm --my-project --env=claude
   │                                 │
   ├─ Resume/start VM if needed      ├─ Resume/start VM if needed
   │                                 │
+  ├─ SSH via IAP tunnel             ├─ SSH via IAP tunnel
   ├─ First run? → install agents    ├─ Create ~/cloud-projects/my-project/
   └─ Land in ~/cloud-projects/      ├─ Create tmux session "my-project"
                                     ├─ Start Claude Code in the session
                                     └─ Attach to tmux session
 ```
+
+All SSH connections go through [IAP TCP forwarding](https://cloud.google.com/iap/docs/using-tcp-forwarding) — the VM has no public SSH port. Only users with the `IAP-secured Tunnel User` IAM role can connect.
 
 After you disconnect, the auto-suspend service waits 2 hours (configurable) with no SSH connections, then suspends the VM. Suspended VMs preserve full memory state and cost only disk storage (~$1-2/month).
 
@@ -76,7 +84,7 @@ After you disconnect, the auto-suspend service waits 2 hours (configurable) with
 
 | File | Where it runs | What it does |
 |---|---|---|
-| `ccvm` | Your local machine | Resume VM + SSH + tmux + start agent |
+| `ccvm` | Your local machine | Resume VM + IAP SSH + tmux + start agent |
 | `first-run-setup.sh` | On the VM | Interactive agent install on first connect |
 | `auto-suspend/` | On the VM | Suspend VM after idle timeout |
 | `setup-vm.sh` | Local (uses gcloud) | Create and provision the VM |
@@ -133,8 +141,27 @@ The VM size barely affects agent response speed since inference happens on the p
 - **Resumed**: full memory state restored in ~30 seconds
 - Suspended VMs auto-terminate after 60 days (GCP limit)
 
+## Security
+
+Connections use IAP TCP forwarding instead of direct SSH. The VM's firewall only allows SSH from GCP's IAP range (`35.235.240.0/20`), so there's no publicly exposed SSH port. Authentication is handled by your Google identity through IAP.
+
+The `setup-vm.sh` script creates the VM with a default firewall. To lock it down to IAP-only:
+
+```bash
+# Remove default SSH rule and add IAP-only rule
+gcloud compute firewall-rules delete default-allow-ssh --project=my-project --quiet
+gcloud compute firewall-rules create allow-iap-ssh \
+  --project=my-project \
+  --direction=INGRESS \
+  --action=ALLOW \
+  --rules=tcp:22 \
+  --source-ranges=35.235.240.0/20
+```
+
 ## Requirements
 
 - `gcloud` CLI installed and authenticated
 - A GCP project with billing enabled
+- IAP API enabled (`gcloud services enable iap.googleapis.com`)
+- `IAP-secured Tunnel User` role on the project (for SSH access)
 - A subscription or API key for your chosen agent
