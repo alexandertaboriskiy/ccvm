@@ -52,7 +52,10 @@ gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --command='
   echo "---" && \
   echo "Node.js: $(node --version)" && \
   echo "tmux: $(tmux -V)" && \
-  echo "git: $(git --version)"
+  echo "git: $(git --version)" && \
+  printf "set -g mouse on\nset -s set-clipboard on\nset -g allow-passthrough on\nset -ga update-environment \"TERM_PROGRAM TERM_PROGRAM_VERSION ITERM_SESSION_ID\"\n" > ~/.tmux.conf && \
+  curl -sL https://iterm2.com/shell_integration/bash -o ~/.iterm2_shell_integration.bash && \
+  printf "\n# iTerm2 shell integration (works through tmux)\nexport ITERM_ENABLE_SHELL_INTEGRATION_WITH_TMUX=Yes\nif [ -f ~/.iterm2_shell_integration.bash ]; then\n  if [ -n \"\\\$TMUX\" ]; then\n    export TERM_PROGRAM=iTerm.app\n  fi\n  source ~/.iterm2_shell_integration.bash\nfi\n" >> ~/.bashrc
 '
 
 echo ""

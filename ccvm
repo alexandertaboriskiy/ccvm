@@ -10,6 +10,8 @@
 #   ccvm --my-project --env=claude    # open Claude Code
 #   ccvm --delete=my-project          # kill tmux session and remove project folder
 #   ccvm ls                           # list projects and active tmux sessions
+#   ccvm upload --my-project f1 f2    # upload files to a project folder
+#   ccvm download --my-project f1     # download file from a project folder
 
 # --- Configuration (edit these) ---
 PROJECT="my-project"
@@ -22,7 +24,7 @@ CLAUDE_CMD="claude --dangerously-skip-permissions --model opus"
 GEMINI_CMD="gemini --yolo --model gemini-2.5-pro"
 # ---
 
-# Subcommands
+# Subcommand
 COMMAND="$1"
 
 # Parse arguments
@@ -86,61 +88,97 @@ case "$STATUS" in
     ;;
 esac
 
-# Handle subcommands
+# --- Subcommands ---
+
+# List projects and sessions
 if [ "$COMMAND" = "ls" ]; then
-  gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --command="
-    echo 'Projects:'
-    ls -1 ~/$PROJECTS_DIR 2>/dev/null || echo '  (none)'
-    echo ''
-    echo 'Active tmux sessions:'
-    tmux list-sessions 2>/dev/null || echo '  (none)'
-  "
+  gcloud compute ssh "$INSTANCE" --tunnel-through-iap --zone="$ZONE" --project="$PROJECT" --command='
+    echo "Projects:"
+    ls -1 ~/'"$PROJECTS_DIR"' 2>/dev/null || echo "  (none)"
+    echo ""
+    echo "Active tmux sessions:"
+    tmux list-sessions 2>/dev/null || echo "  (none)"
+  '
   exit 0
 fi
 
-# Handle --delete (comma-separated list)
+# Upload files to project folder
+if [ "$COMMAND" = "upload" ]; then
+  if [ -z "$SESSION" ]; then
+    echo "Usage: ccvm upload --project file1 [file2 ...]"
+    exit 1
+  fi
+  shift  # remove "upload"
+  FILES=()
+  for arg in "$@"; do
+    [[ "$arg" != --* ]] && FILES+=("$arg")
+  done
+  if [ ${#FILES[@]} -eq 0 ]; then
+    echo "No files specified."
+    exit 1
+  fi
+  gcloud compute ssh "$INSTANCE" --tunnel-through-iap --zone="$ZONE" --project="$PROJECT" --command="mkdir -p ~/$PROJECTS_DIR/$SESSION"
+  gcloud compute scp "${FILES[@]}" "$INSTANCE:~/$PROJECTS_DIR/$SESSION/" --tunnel-through-iap --zone="$ZONE" --project="$PROJECT"
+  exit 0
+fi
+
+# Download files from project folder
+if [ "$COMMAND" = "download" ]; then
+  if [ -z "$SESSION" ]; then
+    echo "Usage: ccvm download --project file1 [file2 ...]"
+    exit 1
+  fi
+  shift  # remove "download"
+  for arg in "$@"; do
+    [[ "$arg" != --* ]] && gcloud compute scp "$INSTANCE:~/$PROJECTS_DIR/$SESSION/$arg" . --tunnel-through-iap --zone="$ZONE" --project="$PROJECT"
+  done
+  exit 0
+fi
+
+# Delete projects (comma-separated list)
 if [ -n "$DELETE" ]; then
-  gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --command="
-    IFS=',' read -ra PROJECTS <<< '$DELETE'
-    for P in \"\${PROJECTS[@]}\"; do
-      echo \"Deleting project '\$P'...\"
-      tmux kill-session -t =\$P 2>/dev/null && echo \"  Killed tmux session: \$P\" || echo \"  No tmux session: \$P\"
-      if [ -d ~/$PROJECTS_DIR/\$P ]; then
-        rm -rf ~/$PROJECTS_DIR/\$P
-        echo \"  Removed folder: ~/$PROJECTS_DIR/\$P\"
+  IFS=',' read -ra TO_DELETE <<< "$DELETE"
+  for P in "${TO_DELETE[@]}"; do
+    echo "Deleting project '$P'..."
+    gcloud compute ssh "$INSTANCE" --tunnel-through-iap --zone="$ZONE" --project="$PROJECT" --command='
+      tmux kill-session -t ='"$P"' 2>/dev/null && echo "  Killed tmux session: '"$P"'" || echo "  No tmux session: '"$P"'"
+      if [ -d ~/'"$PROJECTS_DIR/$P"' ]; then
+        rm -rf ~/'"$PROJECTS_DIR/$P"'
+        echo "  Removed folder: ~/'"$PROJECTS_DIR/$P"'"
       else
-        echo \"  No folder: ~/$PROJECTS_DIR/\$P\"
+        echo "  No folder: ~/'"$PROJECTS_DIR/$P"'"
       fi
-    done
-  "
+    '
+  done
   exit 0
 fi
 
-# SSH in
+# --- Connect ---
+
 if [ -z "$SESSION" ]; then
   # No project — run first-time setup if needed, list projects, land in projects dir
-  gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" -- -t "
-if [ ! -f ~/.ccvm-setup-done ]; then
-  bash ~/first-run-setup.sh
-fi
-mkdir -p ~/$PROJECTS_DIR
-echo 'Projects:'
-ls -1 ~/$PROJECTS_DIR 2>/dev/null || echo '  (none)'
-echo ''
-cd ~/$PROJECTS_DIR && exec bash
-"
+  gcloud compute ssh "$INSTANCE" --tunnel-through-iap --zone="$ZONE" --project="$PROJECT" -- -t '
+    if [ ! -f ~/.ccvm-setup-done ]; then
+      bash ~/first-run-setup.sh
+    fi
+    mkdir -p ~/'"$PROJECTS_DIR"'
+    echo "Projects:"
+    ls -1 ~/'"$PROJECTS_DIR"' 2>/dev/null || echo "  (none)"
+    echo ""
+    cd ~/'"$PROJECTS_DIR"' && exec bash
+  '
 else
-  REMOTE_SCRIPT="
-if [ ! -f ~/.ccvm-setup-done ]; then
-  bash ~/first-run-setup.sh
-fi
-mkdir -p ~/$PROJECTS_DIR/$SESSION
-if tmux has-session -t =$SESSION 2>/dev/null; then
-  tmux attach-session -t =$SESSION
-else
-  tmux new-session -d -s $SESSION -c \"\$HOME/$PROJECTS_DIR/$SESSION\"
-  tmux attach-session -t =$SESSION \\; send-keys '$AGENT_CMD' Enter
-fi
-"
-  gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" -- -t "$REMOTE_SCRIPT"
+  REMOTE_DIR="\$HOME/$PROJECTS_DIR/$SESSION"
+  gcloud compute ssh "$INSTANCE" --tunnel-through-iap --zone="$ZONE" --project="$PROJECT" -- -t '
+    if [ ! -f ~/.ccvm-setup-done ]; then
+      bash ~/first-run-setup.sh
+    fi
+    mkdir -p ~/'"$PROJECTS_DIR/$SESSION"'
+    if tmux has-session -t ='"$SESSION"' 2>/dev/null; then
+      tmux attach-session -t ='"$SESSION"'
+    else
+      tmux new-session -d -s '"$SESSION"' -c ~/'"$PROJECTS_DIR/$SESSION"'
+      tmux attach-session -t ='"$SESSION"' \; send-keys '"'$AGENT_CMD'"' Enter
+    fi
+  '
 fi
