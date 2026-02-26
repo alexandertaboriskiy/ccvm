@@ -21,7 +21,7 @@ PROJECTS_DIR="cloud-projects"
 
 DEFAULT_ENV="claude"
 CLAUDE_CMD="claude --dangerously-skip-permissions --model opus"
-GEMINI_CMD="gemini --yolo --model gemini-2.5-pro"
+GEMINI_CMD="gemini --yolo --model gemini-3.1-pro-preview"
 # ---
 
 # Subcommand
