@@ -174,11 +174,13 @@ else
       bash ~/first-run-setup.sh
     fi
     mkdir -p ~/'"$PROJECTS_DIR/$SESSION"'
+    cd ~/'"$PROJECTS_DIR/$SESSION"'
     if tmux has-session -t ='"$SESSION"' 2>/dev/null; then
       tmux attach-session -t ='"$SESSION"'
     else
       tmux new-session -d -s '"$SESSION"' -c ~/'"$PROJECTS_DIR/$SESSION"'
       tmux attach-session -t ='"$SESSION"' \; send-keys '"'$AGENT_CMD'"' Enter
     fi
+    exec bash
   '
 fi
