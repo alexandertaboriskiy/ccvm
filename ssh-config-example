@@ -1,0 +1,23 @@
+# Add this to ~/.ssh/config to enable iTerm2 drag-and-drop file transfer
+# and direct SSH/SCP to your ccvm through the local IAP tunnel.
+#
+# Replace YOUR_OS_LOGIN_USER with your OS Login username.
+# Find it with: gcloud compute os-login describe-profile --format="value(posixAccounts[0].username)"
+#
+# Replace YOUR_VM_FQDN with your VM's FQDN.
+# Format: INSTANCE.ZONE.c.PROJECT.internal
+# Example: ccvm.europe-west6-a.c.my-project.internal
+
+Host ccvm
+  HostName localhost
+  Port 2222
+  User YOUR_OS_LOGIN_USER
+  IdentityFile ~/.ssh/google_compute_engine
+  StrictHostKeyChecking accept-new
+
+Host YOUR_VM_FQDN
+  HostName localhost
+  Port 2222
+  User YOUR_OS_LOGIN_USER
+  IdentityFile ~/.ssh/google_compute_engine
+  StrictHostKeyChecking accept-new

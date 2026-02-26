@@ -1,0 +1,46 @@
+#!/bin/bash
+# Maintains a persistent IAP tunnel to ccvm on localhost:2222
+# Used by iTerm2 drag-and-drop SCP and general SSH access.
+# Runs as a launchd agent — waits for the VM to come up, then tunnels.
+#
+# Install:
+#   cp ccvm-tunnel ~/bin/ccvm-tunnel
+#   chmod +x ~/bin/ccvm-tunnel
+#   Edit the configuration below, then install the launchd agent:
+#   cp com.ccvm.tunnel.plist ~/Library/LaunchAgents/
+#   launchctl load ~/Library/LaunchAgents/com.ccvm.tunnel.plist
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+# --- Configuration (edit these to match your ccvm script) ---
+PROJECT="${PROJECT:-my-project}"
+ZONE="${ZONE:-europe-west6-a}"
+INSTANCE="${INSTANCE:-ccvm}"
+LOCAL_PORT="${LOCAL_PORT:-2222}"
+# ---
+
+# Check if tunnel is already running
+if lsof -i :$LOCAL_PORT -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Tunnel already running on port $LOCAL_PORT"
+  exit 0
+fi
+
+# Wait for VM to be running (retry every 30s, up to 10 min)
+for i in $(seq 1 20); do
+  STATUS=$(gcloud compute instances describe "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --format="value(status)" 2>/dev/null)
+  [ "$STATUS" = "RUNNING" ] && break
+  echo "VM not running (status: $STATUS). Waiting... ($i/20)"
+  sleep 30
+done
+
+if [ "$STATUS" != "RUNNING" ]; then
+  echo "VM did not start within timeout. Exiting."
+  exit 1
+fi
+
+echo "Starting IAP tunnel on localhost:$LOCAL_PORT..."
+exec gcloud compute start-iap-tunnel "$INSTANCE" 22 \
+  --local-host-port=localhost:$LOCAL_PORT \
+  --zone="$ZONE" \
+  --project="$PROJECT" \
+  --quiet

@@ -80,11 +80,66 @@ All SSH connections go through [IAP TCP forwarding](https://cloud.google.com/iap
 
 After you disconnect, the auto-suspend service waits 2 hours (configurable) with no SSH connections, then suspends the VM. Suspended VMs preserve full memory state and cost only disk storage (~$1-2/month).
 
+## iTerm2 drag-and-drop file transfer
+
+iTerm2 can transfer files by drag-and-drop when connected to a remote host, but its built-in SCP doesn't use `~/.ssh/config` ProxyCommand. Since the VM is only reachable through IAP, you need a persistent local tunnel.
+
+### Setup
+
+1. Install the tunnel script:
+
+```bash
+cp ccvm-tunnel ~/bin/ccvm-tunnel
+chmod +x ~/bin/ccvm-tunnel
+# Edit the configuration variables at the top to match your ccvm script
+```
+
+2. Add the SSH config (so iTerm2's SCP connects through the tunnel):
+
+```bash
+# Find your OS Login username
+gcloud compute os-login describe-profile --format="value(posixAccounts[0].username)"
+
+# Copy ssh-config-example to ~/.ssh/config and fill in your values
+cat ssh-config-example >> ~/.ssh/config
+```
+
+3. Install the launchd agent (auto-starts the tunnel on login):
+
+```bash
+# Edit com.ccvm.tunnel.plist — update the path to ccvm-tunnel
+cp com.ccvm.tunnel.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.ccvm.tunnel.plist
+```
+
+The tunnel waits for the VM to be running, then forwards `localhost:2222` to the VM's port 22 through IAP. If it drops, launchd restarts it.
+
+### Usage
+
+Just drag files onto the iTerm2 terminal while connected to ccvm. iTerm2 will prompt to SCP them through the local tunnel.
+
+### Useful commands
+
+```bash
+# Check tunnel status
+lsof -i :2222
+
+# View tunnel logs
+tail -f /tmp/ccvm-tunnel.log
+
+# Restart tunnel
+launchctl stop com.ccvm.tunnel
+launchctl start com.ccvm.tunnel
+```
+
 ## Components
 
 | File | Where it runs | What it does |
 |---|---|---|
 | `ccvm` | Your local machine | Resume VM + IAP SSH + tmux + start agent |
+| `ccvm-tunnel` | Your local machine | Persistent IAP tunnel for iTerm2 drag-and-drop |
+| `com.ccvm.tunnel.plist` | Your local machine | launchd agent to auto-start the tunnel |
+| `ssh-config-example` | Your local machine | SSH config for routing SCP through the tunnel |
 | `first-run-setup.sh` | On the VM | Interactive agent install on first connect |
 | `auto-suspend/` | On the VM | Suspend VM after idle timeout |
 | `setup-vm.sh` | Local (uses gcloud) | Create and provision the VM |
