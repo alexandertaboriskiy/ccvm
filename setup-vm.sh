@@ -18,8 +18,26 @@ MACHINE_TYPE="${MACHINE_TYPE:-n2-standard-2}"
 DISK_SIZE="${DISK_SIZE:-30GB}"
 DISK_TYPE="${DISK_TYPE:-pd-ssd}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REGION="${ZONE%-*}"
 # ---
 
+echo "=== Setting up Cloud NAT (outbound internet without external IP) ==="
+if ! gcloud compute routers describe ccvm-router --region="$REGION" --project="$PROJECT" &>/dev/null; then
+  gcloud compute routers create ccvm-router \
+    --project="$PROJECT" \
+    --region="$REGION" \
+    --network=default
+  gcloud compute routers nats create ccvm-nat \
+    --project="$PROJECT" \
+    --router=ccvm-router \
+    --region="$REGION" \
+    --auto-allocate-nat-external-ips \
+    --nat-all-subnet-ip-ranges
+else
+  echo "Cloud NAT already configured, skipping."
+fi
+
+echo ""
 echo "=== Creating VM ==="
 echo "Project:  $PROJECT"
 echo "Zone:     $ZONE"
@@ -37,7 +55,8 @@ gcloud compute instances create "$INSTANCE" \
   --boot-disk-size="$DISK_SIZE" \
   --boot-disk-type="$DISK_TYPE" \
   --scopes=cloud-platform \
-  --tags=ccvm
+  --tags=ccvm \
+  --no-address
 
 echo ""
 echo "=== Waiting for SSH ==="
