@@ -68,13 +68,16 @@ echo "=== Installing Node.js, tmux, and git ==="
 gcloud compute ssh "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --command='
   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && \
   sudo apt-get install -y nodejs tmux git && \
+  sudo sed -i "/^#ClientAliveInterval/c\ClientAliveInterval 60" /etc/ssh/sshd_config && \
+  sudo sed -i "/^#ClientAliveCountMax/c\ClientAliveCountMax 3" /etc/ssh/sshd_config && \
+  sudo systemctl restart sshd && \
   echo "---" && \
   echo "Node.js: $(node --version)" && \
   echo "tmux: $(tmux -V)" && \
   echo "git: $(git --version)" && \
-  printf "set -g mouse on\nset -s set-clipboard on\nset -g allow-passthrough on\nset -ga update-environment \"TERM_PROGRAM TERM_PROGRAM_VERSION ITERM_SESSION_ID\"\n" > ~/.tmux.conf && \
+  printf "set -g mouse on\nset -s set-clipboard on\nset -g allow-passthrough on\nset -ga update-environment \"TERM_PROGRAM TERM_PROGRAM_VERSION ITERM_SESSION_ID\"\nbind-key -n C-d detach-client\n" > ~/.tmux.conf && \
   curl -sL https://iterm2.com/shell_integration/bash -o ~/.iterm2_shell_integration.bash && \
-  printf "\n# iTerm2 shell integration (works through tmux)\nexport ITERM_ENABLE_SHELL_INTEGRATION_WITH_TMUX=Yes\nif [ -f ~/.iterm2_shell_integration.bash ]; then\n  if [ -n \"\\\$TMUX\" ]; then\n    export TERM_PROGRAM=iTerm.app\n  fi\n  source ~/.iterm2_shell_integration.bash\nfi\n" >> ~/.bashrc
+  printf "\n# iTerm2 shell integration (works through tmux)\nexport ITERM_ENABLE_SHELL_INTEGRATION_WITH_TMUX=Yes\nexport TERM_PROGRAM=iTerm.app\nif [ -f ~/.iterm2_shell_integration.bash ]; then\n  source ~/.iterm2_shell_integration.bash\nfi\n\n# Fix iTerm2 escape sequences inside tmux: wrap in DCS passthrough\n# so they reach iTerm2 through tmux instead of being silently discarded.\nif [ -n \"\\\$TMUX\" ] && declare -f iterm2_begin_osc > /dev/null 2>&1; then\n  iterm2_begin_osc() { printf \"\\\\\\\\ePtmux;\\\\\\\\e\\\\\\\\e]\"; }\n  iterm2_end_osc() { printf \"\\\\\\\\a\\\\\\\\e\\\\\\\\\\\\\\\\\"; }\nfi\n" >> ~/.bashrc
 '
 
 echo ""

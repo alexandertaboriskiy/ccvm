@@ -27,6 +27,37 @@ GEMINI_CMD="gemini --yolo --model gemini-3.1-pro-preview"
 # Subcommand
 COMMAND="$1"
 
+# Help
+if [ "$COMMAND" = "help" ] || [ "$COMMAND" = "-h" ] || [ "$COMMAND" = "--help" ]; then
+  cat <<'EOF'
+ccvm - Cloud Code VM
+
+Connect:
+  ccvm                              Connect to VM, land in ~/cloud-projects/
+  ccvm --myproject                  Open Claude Code in ~/cloud-projects/myproject/
+  ccvm --myproject --env=gemini     Open Gemini CLI instead
+  ccvm --myproject --env=claude     Open Claude Code (default)
+
+Projects:
+  ccvm ls                           List projects and active tmux sessions
+  ccvm --delete=myproject           Kill tmux session and remove project folder
+  ccvm --delete=proj1,proj2         Delete multiple projects
+
+File transfer:
+  ccvm upload --myproject f1 f2     Upload local files to project folder
+  ccvm download --myproject f1      Download file from project folder to cwd
+
+iTerm2 drag-and-drop:
+  Option+drag file onto terminal    Upload file via SCP to current remote dir
+
+Keyboard shortcuts (inside tmux):
+  Ctrl+D                            Detach from tmux (session stays alive)
+  Ctrl+B, D                         Detach from tmux (alternative)
+  Prefix+m                          Toggle mouse mode (for drag-and-drop)
+EOF
+  exit 0
+fi
+
 # Parse arguments
 SESSION=""
 DELETE=""
@@ -181,6 +212,8 @@ else
       tmux new-session -d -s '"$SESSION"' -c ~/'"$PROJECTS_DIR/$SESSION"'
       tmux attach-session -t ='"$SESSION"' \; send-keys '"'$AGENT_CMD'"' Enter
     fi
+    cd ~/'"$PROJECTS_DIR/$SESSION"'
+    reset
     exec bash
   '
 fi
