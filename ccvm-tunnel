@@ -39,8 +39,34 @@ if [ "$STATUS" != "RUNNING" ]; then
 fi
 
 echo "Starting IAP tunnel on localhost:$LOCAL_PORT..."
-exec gcloud compute start-iap-tunnel "$INSTANCE" 22 \
+gcloud compute start-iap-tunnel "$INSTANCE" 22 \
   --local-host-port=localhost:$LOCAL_PORT \
   --zone="$ZONE" \
   --project="$PROJECT" \
-  --quiet
+  --quiet &
+TUNNEL_PID=$!
+
+# Health check: every 60s, try SSH through the tunnel.
+# If it fails 3 times in a row, kill the tunnel so launchd restarts it.
+FAIL_COUNT=0
+MAX_FAILS=3
+sleep 10  # let tunnel establish
+while kill -0 $TUNNEL_PID 2>/dev/null; do
+  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o IdentityFile=~/.ssh/google_compute_engine -p $LOCAL_PORT ccvm true 2>/dev/null; then
+    FAIL_COUNT=0
+  else
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    echo "$(date): Health check failed ($FAIL_COUNT/$MAX_FAILS)"
+    if [ $FAIL_COUNT -ge $MAX_FAILS ]; then
+      echo "$(date): Tunnel stale. Killing PID $TUNNEL_PID for restart."
+      kill $TUNNEL_PID 2>/dev/null
+      wait $TUNNEL_PID 2>/dev/null
+      exit 1  # non-zero so launchd restarts us
+    fi
+  fi
+  sleep 60
+done
+
+# Tunnel process exited on its own
+wait $TUNNEL_PID
+exit 1

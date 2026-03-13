@@ -9,6 +9,13 @@
     <!-- Update this path if you installed ccvm-tunnel elsewhere -->
     <string>/Users/YOU/bin/ccvm-tunnel</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/YOU</string>
+    <key>CLOUDSDK_CONFIG</key>
+    <string>/Users/YOU/.config/gcloud</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
