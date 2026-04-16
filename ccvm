@@ -99,6 +99,28 @@ case "$STATUS" in
       sleep 2
     done
     sleep 5
+    # Verify SSH is actually reachable — network sometimes fails after resume
+    echo "Verifying SSH connectivity..."
+    SSH_OK=false
+    for i in $(seq 1 6); do
+      if gcloud compute ssh "$INSTANCE" --tunnel-through-iap --zone="$ZONE" --project="$PROJECT" --command='true' 2>/dev/null; then
+        SSH_OK=true
+        break
+      fi
+      sleep 5
+    done
+    if [ "$SSH_OK" = false ]; then
+      echo "SSH unreachable after resume (network likely failed). Resetting VM..."
+      gcloud compute instances reset "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --quiet
+      echo "Waiting for VM to come back..."
+      sleep 10
+      for i in $(seq 1 12); do
+        if gcloud compute ssh "$INSTANCE" --tunnel-through-iap --zone="$ZONE" --project="$PROJECT" --command='true' 2>/dev/null; then
+          break
+        fi
+        sleep 10
+      done
+    fi
     echo "VM is ready. Connecting..."
     ;;
   TERMINATED|STOPPED)

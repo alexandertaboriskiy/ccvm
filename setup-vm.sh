@@ -92,6 +92,8 @@ echo "=== Installing auto-suspend ==="
 gcloud compute scp \
   "$SCRIPT_DIR/auto-suspend/auto-suspend.sh" \
   "$SCRIPT_DIR/auto-suspend/auto-suspend.service" \
+  "$SCRIPT_DIR/auto-suspend/network-watchdog.sh" \
+  "$SCRIPT_DIR/auto-suspend/network-watchdog.service" \
   "$SCRIPT_DIR/auto-suspend/install-auto-suspend.sh" \
   "$INSTANCE:/tmp/" \
   --zone="$ZONE" --project="$PROJECT"

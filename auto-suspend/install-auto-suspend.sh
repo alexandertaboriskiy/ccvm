@@ -16,9 +16,17 @@ sudo chmod +x /usr/local/bin/auto-suspend.sh
 sudo cp "$SCRIPT_DIR/auto-suspend.service" /etc/systemd/system/auto-suspend.service
 sudo sed -i "s/IDLE_TIMEOUT=7200/IDLE_TIMEOUT=$TIMEOUT/" /etc/systemd/system/auto-suspend.service
 
+sudo cp "$SCRIPT_DIR/network-watchdog.sh" /usr/local/bin/network-watchdog.sh
+sudo chmod +x /usr/local/bin/network-watchdog.sh
+
+sudo cp "$SCRIPT_DIR/network-watchdog.service" /etc/systemd/system/network-watchdog.service
+
 sudo systemctl daemon-reload
-sudo systemctl enable auto-suspend
-sudo systemctl start auto-suspend
+sudo systemctl enable auto-suspend network-watchdog
+sudo systemctl start auto-suspend network-watchdog
 
 echo "Auto-suspend installed. Timeout: ${TIMEOUT}s"
 sudo systemctl status auto-suspend --no-pager
+echo ""
+echo "Network watchdog installed."
+sudo systemctl status network-watchdog --no-pager

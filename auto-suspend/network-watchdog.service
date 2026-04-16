@@ -1,0 +1,11 @@
+[Unit]
+Description=Reboot VM if network is dead after suspend/resume
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/network-watchdog.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
