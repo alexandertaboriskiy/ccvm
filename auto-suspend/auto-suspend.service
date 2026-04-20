@@ -3,7 +3,7 @@ Description=Auto-suspend VM after idle timeout
 After=network.target
 
 [Service]
-Environment=IDLE_TIMEOUT=7200
+Environment=IDLE_TIMEOUT=21600
 ExecStart=/usr/local/bin/auto-suspend.sh
 Restart=always
 RestartSec=10

@@ -1,6 +1,7 @@
 #!/bin/bash
-# Maintains a persistent IAP tunnel to ccvm on localhost:2222
-# Used by iTerm2 drag-and-drop SCP and general SSH access.
+# Maintains persistent IAP tunnels to ccvm:
+#   localhost:2222 → VM:22   (SSH, iTerm2 drag-and-drop SCP)
+#   localhost:8888 → VM:8888 (web server access)
 # Runs as a launchd agent — waits for the VM to come up, then tunnels.
 #
 # Install:
@@ -16,12 +17,13 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 PROJECT="${PROJECT:-my-project}"
 ZONE="${ZONE:-europe-west6-a}"
 INSTANCE="${INSTANCE:-ccvm}"
-LOCAL_PORT="${LOCAL_PORT:-2222}"
+SSH_PORT="${SSH_PORT:-2222}"
+WEB_PORT="${WEB_PORT:-8888}"
 # ---
 
-# Check if tunnel is already running
-if lsof -i :$LOCAL_PORT -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Tunnel already running on port $LOCAL_PORT"
+# Check if tunnels are already running
+if lsof -i :$SSH_PORT -sTCP:LISTEN >/dev/null 2>&1 && lsof -i :$WEB_PORT -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Tunnels already running on ports $SSH_PORT and $WEB_PORT"
   exit 0
 fi
 
@@ -38,35 +40,41 @@ if [ "$STATUS" != "RUNNING" ]; then
   exit 1
 fi
 
-echo "Starting IAP tunnel on localhost:$LOCAL_PORT..."
+# Clean up child processes on exit
+trap 'kill $(jobs -p) 2>/dev/null; wait' EXIT
+
+# Start SSH tunnel
+echo "Starting IAP tunnel: localhost:$SSH_PORT → VM:22"
 gcloud compute start-iap-tunnel "$INSTANCE" 22 \
-  --local-host-port=localhost:$LOCAL_PORT \
-  --zone="$ZONE" \
-  --project="$PROJECT" \
-  --quiet &
-TUNNEL_PID=$!
+  --local-host-port=localhost:$SSH_PORT \
+  --zone="$ZONE" --project="$PROJECT" --quiet &
+SSH_PID=$!
+
+# Start web tunnel
+echo "Starting IAP tunnel: localhost:$WEB_PORT → VM:$WEB_PORT"
+gcloud compute start-iap-tunnel "$INSTANCE" $WEB_PORT \
+  --local-host-port=localhost:$WEB_PORT \
+  --zone="$ZONE" --project="$PROJECT" --quiet &
+WEB_PID=$!
 
 # Health check: every 60s, try SSH through the tunnel.
-# If it fails 3 times in a row, kill the tunnel so launchd restarts it.
+# If it fails 3 times in a row, exit so launchd restarts us.
 FAIL_COUNT=0
 MAX_FAILS=3
-sleep 10  # let tunnel establish
-while kill -0 $TUNNEL_PID 2>/dev/null; do
-  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o IdentityFile=~/.ssh/google_compute_engine -p $LOCAL_PORT ccvm true 2>/dev/null; then
+sleep 10  # let tunnels establish
+while kill -0 $SSH_PID 2>/dev/null && kill -0 $WEB_PID 2>/dev/null; do
+  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o IdentityFile=~/.ssh/google_compute_engine -p $SSH_PORT ccvm true 2>/dev/null; then
     FAIL_COUNT=0
   else
     FAIL_COUNT=$((FAIL_COUNT + 1))
     echo "$(date): Health check failed ($FAIL_COUNT/$MAX_FAILS)"
     if [ $FAIL_COUNT -ge $MAX_FAILS ]; then
-      echo "$(date): Tunnel stale. Killing PID $TUNNEL_PID for restart."
-      kill $TUNNEL_PID 2>/dev/null
-      wait $TUNNEL_PID 2>/dev/null
-      exit 1  # non-zero so launchd restarts us
+      echo "$(date): Tunnel stale. Exiting for launchd restart."
+      exit 1
     fi
   fi
   sleep 60
 done
 
-# Tunnel process exited on its own
-wait $TUNNEL_PID
+# One of the tunnels exited on its own — bail so launchd restarts us
 exit 1

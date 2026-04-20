@@ -1,0 +1,10 @@
+[Unit]
+Description=Fix network interface after suspend/resume
+After=suspend.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fix-network-on-resume.sh
+
+[Install]
+WantedBy=suspend.target

@@ -9,7 +9,8 @@
 #
 # Install: see install-auto-suspend.sh
 
-IDLE_TIMEOUT=${IDLE_TIMEOUT:-7200}  # default 2 hours
+IDLE_TIMEOUT=${IDLE_TIMEOUT:-21600}  # default 6 hours
+ACTIVITY_WINDOW=300  # seconds — TTY is "active" if written to within this window
 SUSPEND_RETRIES=3
 SUSPEND_RETRY_DELAY=10
 
@@ -30,13 +31,13 @@ is_active() {
     return 0  # active: CPU work in progress
   fi
 
-  # Check if any TTY has had recent activity (write within IDLE_TIMEOUT)
+  # Check if any TTY has had recent activity (write within ACTIVITY_WINDOW)
   local now idle_since max_idle
   now=$(date +%s)
   for pts in /dev/pts/[0-9]*; do
     idle_since=$(stat -c %Y "$pts" 2>/dev/null) || continue
     max_idle=$((now - idle_since))
-    if [ "$max_idle" -lt "$IDLE_TIMEOUT" ]; then
+    if [ "$max_idle" -lt "$ACTIVITY_WINDOW" ]; then
       return 0  # active: recent TTY activity
     fi
   done
