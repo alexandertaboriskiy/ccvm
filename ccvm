@@ -83,7 +83,11 @@ case "$ENV" in
 esac
 
 # Resume/start VM if needed (short timeout avoids hanging on stale network connections)
-STATUS=$(timeout 10 gcloud compute instances describe "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --format="value(status)" 2>/dev/null)
+TIMEOUT_CMD=""
+if command -v timeout >/dev/null 2>&1; then TIMEOUT_CMD="timeout 10"
+elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_CMD="gtimeout 10"
+fi
+STATUS=$($TIMEOUT_CMD gcloud compute instances describe "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --format="value(status)" 2>/dev/null)
 if [ $? -eq 124 ]; then
   echo "Timed out checking VM status. Retrying..."
   STATUS=$(gcloud compute instances describe "$INSTANCE" --zone="$ZONE" --project="$PROJECT" --format="value(status)" 2>/dev/null)
